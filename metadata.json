@@ -1,0 +1,7 @@
+{
+  "name": "SkyGuard Maintenance Pro",
+  "description": "A comprehensive aircraft maintenance and component tracking system with AI-driven predictive analytics for aero clubs.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
