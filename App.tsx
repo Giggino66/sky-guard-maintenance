@@ -1,9 +1,9 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { HashRouter, Routes, Route, Link, useLocation } from 'react-router-dom';
 import { 
   Plane, 
-  Settings, 
+  Settings as SettingsIcon, 
   LayoutDashboard, 
   ClipboardList, 
   AlertTriangle, 
@@ -18,16 +18,79 @@ import {
   Box,
   Truck,
   Trash2,
-  Edit2
+  Edit2,
+  Database,
+  Download,
+  Upload,
+  RefreshCcw,
+  Wrench
 } from 'lucide-react';
-import { INITIAL_AIRCRAFT, INITIAL_COMPONENTS } from './constants';
-import { MaintenanceType, Criticality } from './types';
+import { Aircraft, Component, MaintenanceType, Criticality, PredictionResult, MaintenanceRequirement } from './types';
 import { calculatePrediction } from './utils/maintenance';
 import { getMaintenanceAdvice } from './services/geminiService';
+import { storageService } from './services/storageService';
+
+// --- Interfaces ---
+
+interface SidebarLinkProps {
+  to: string;
+  icon: React.ElementType;
+  label: string;
+}
+
+interface ModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  title: string;
+  children?: React.ReactNode;
+}
+
+interface DashboardProps {
+  aircraft: Aircraft[];
+  predictions: PredictionResult[];
+}
+
+interface FleetViewProps {
+  aircraft: Aircraft[];
+  onAddAircraft: (data: Omit<Aircraft, 'id'>) => void;
+  onEditAircraft: (acId: string, data: Partial<Aircraft>) => void;
+  onDeleteAircraft: (acId: string) => void;
+  onUpdateUsage: (acId: string, fh: number, oh: number, cycles: number) => void;
+}
+
+interface SettingsPageProps {
+  aircraft: Aircraft[];
+  components: Component[];
+  onImport: (newAc: Aircraft[], newComp: Component[]) => void;
+  onReset: () => void;
+}
+
+interface ReportsViewProps {
+  predictions: PredictionResult[];
+  components: Component[];
+}
 
 // --- Shared Components ---
 
-function SidebarLink({ to, icon: Icon, label }) {
+const StatusBadge = ({ status }: { status: 'A' | 'R' | 'M' | 'I' }) => {
+  const configs = {
+    'A': { label: 'Efficiente', color: 'bg-emerald-100 text-emerald-700 border-emerald-200', icon: CheckCircle2 },
+    'R': { label: 'Riparazione', color: 'bg-amber-100 text-amber-700 border-amber-200', icon: Wrench },
+    'M': { label: 'Manutenzione', color: 'bg-blue-100 text-blue-700 border-blue-200', icon: Clock },
+    'I': { label: 'Inefficiente', color: 'bg-red-100 text-red-700 border-red-200', icon: AlertTriangle }
+  };
+
+  const { label, color, icon: Icon } = configs[status];
+
+  return (
+    <span className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${color}`}>
+      <Icon size={12} />
+      {label}
+    </span>
+  );
+};
+
+function SidebarLink({ to, icon: Icon, label }: SidebarLinkProps) {
   const location = useLocation();
   const isActive = location.pathname === to;
   return (
@@ -43,14 +106,6 @@ function SidebarLink({ to, icon: Icon, label }) {
       <span className="font-medium">{label}</span>
     </Link>
   );
-}
-
-// Interface added to fix 'children' prop type error in .tsx file
-interface ModalProps {
-  isOpen: any;
-  onClose: any;
-  title: any;
-  children?: React.ReactNode;
 }
 
 function Modal({ isOpen, onClose, title, children }: ModalProps) {
@@ -74,9 +129,9 @@ function Modal({ isOpen, onClose, title, children }: ModalProps) {
 
 // --- Page Components ---
 
-function Dashboard({ aircraft, predictions }) {
+function Dashboard({ aircraft, predictions }: DashboardProps) {
   const criticalCount = predictions.filter(p => p.actionRequired === 'Immediate').length;
-  const procureCount = predictions.filter(p => p.actionRequired === 'Procure').length;
+  const efficientCount = aircraft.filter(a => a.status === 'A').length;
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
@@ -89,9 +144,10 @@ function Dashboard({ aircraft, predictions }) {
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
           <div className="flex items-center justify-between mb-4">
             <div className="p-2 bg-blue-100 text-blue-600 rounded-lg"><Plane size={24} /></div>
-            <span className="text-xs font-semibold text-slate-400 uppercase">Active Fleet</span>
+            <span className="text-xs font-semibold text-slate-400 uppercase">Operational</span>
           </div>
-          <div className="text-2xl font-bold text-slate-900">{aircraft.length} Aircraft</div>
+          <div className="text-2xl font-bold text-slate-900">{efficientCount} / {aircraft.length}</div>
+          <div className="text-[10px] text-slate-400 mt-1 uppercase font-bold">Efficient Aircraft</div>
         </div>
 
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
@@ -100,22 +156,25 @@ function Dashboard({ aircraft, predictions }) {
             <span className="text-xs font-semibold text-slate-400 uppercase">Immediate</span>
           </div>
           <div className="text-2xl font-bold text-slate-900">{criticalCount} Tasks</div>
+          <div className="text-[10px] text-slate-400 mt-1 uppercase font-bold">Action Required</div>
         </div>
 
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
           <div className="flex items-center justify-between mb-4">
             <div className="p-2 bg-orange-100 text-orange-600 rounded-lg"><Package size={24} /></div>
-            <span className="text-xs font-semibold text-slate-400 uppercase">Lead Time Alert</span>
+            <span className="text-xs font-semibold text-slate-400 uppercase">Procurements</span>
           </div>
-          <div className="text-2xl font-bold text-slate-900">{procureCount} Procurements</div>
+          <div className="text-2xl font-bold text-slate-900">{predictions.filter(p => p.actionRequired === 'Procure').length} Items</div>
+          <div className="text-[10px] text-slate-400 mt-1 uppercase font-bold">In Lead Time</div>
         </div>
 
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
           <div className="flex items-center justify-between mb-4">
             <div className="p-2 bg-green-100 text-green-600 rounded-lg"><Box size={24} /></div>
-            <span className="text-xs font-semibold text-slate-400 uppercase">Ground Assets</span>
+            <span className="text-xs font-semibold text-slate-400 uppercase">Ground</span>
           </div>
-          <div className="text-2xl font-bold text-slate-900">Tracked</div>
+          <div className="text-2xl font-bold text-slate-900">Inventory</div>
+          <div className="text-[10px] text-slate-400 mt-1 uppercase font-bold">Tracked Assets</div>
         </div>
       </div>
 
@@ -148,9 +207,9 @@ function Dashboard({ aircraft, predictions }) {
   );
 }
 
-function FleetView({ aircraft, onAddAircraft, onEditAircraft, onDeleteAircraft, onUpdateUsage }) {
-  const [selectedAcCounters, setSelectedAcCounters] = useState(null);
-  const [editingAc, setEditingAc] = useState(null);
+function FleetView({ aircraft, onAddAircraft, onEditAircraft, onDeleteAircraft, onUpdateUsage }: FleetViewProps) {
+  const [selectedAcCounters, setSelectedAcCounters] = useState<Aircraft | null>(null);
+  const [editingAc, setEditingAc] = useState<Aircraft | null>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
 
   return (
@@ -170,11 +229,11 @@ function FleetView({ aircraft, onAddAircraft, onEditAircraft, onDeleteAircraft, 
           <div key={ac.id} className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col justify-between group hover:border-blue-300 transition-all">
             <div className="flex justify-between items-start mb-6">
               <div>
-                <div className="text-2xl font-black text-slate-900 font-mono tracking-tighter mb-1">{ac.registration}</div>
-                <div className="text-slate-500 font-medium">{ac.model}</div>
+                <div className="text-2xl font-black text-slate-900 font-mono tracking-tighter mb-1 uppercase">{ac.registration}</div>
+                <div className="text-slate-500 font-medium mb-2">{ac.model}</div>
+                <StatusBadge status={ac.status} />
               </div>
               <div className="flex flex-col gap-2">
-                <div className="px-3 py-1 bg-green-50 text-green-700 rounded-full text-xs font-bold uppercase tracking-wider text-center">Active</div>
                 <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-all">
                   <button 
                     onClick={() => setSelectedAcCounters(ac)}
@@ -218,14 +277,14 @@ function FleetView({ aircraft, onAddAircraft, onEditAircraft, onDeleteAircraft, 
         ))}
       </div>
 
-      {/* Add Aircraft Modal */}
       <Modal isOpen={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} title="Register New Aircraft">
         <form onSubmit={(e) => {
           e.preventDefault();
           const fd = new FormData(e.currentTarget);
           onAddAircraft({
-            registration: fd.get('reg'),
-            model: fd.get('model'),
+            registration: fd.get('reg') as string,
+            model: fd.get('model') as string,
+            status: fd.get('status') as 'A' | 'R' | 'M' | 'I',
             totalFlightHours: Number(fd.get('fh')),
             totalOperatingHours: Number(fd.get('oh')),
             totalCycles: Number(fd.get('cycles')),
@@ -243,6 +302,15 @@ function FleetView({ aircraft, onAddAircraft, onEditAircraft, onDeleteAircraft, 
               <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Model</label>
               <input name="model" placeholder="Cessna 172" required className="w-full px-4 py-2 rounded-lg border border-slate-200" />
             </div>
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Stato Operativo</label>
+            <select name="status" defaultValue="A" className="w-full px-4 py-2 rounded-lg border border-slate-200">
+              <option value="A">A - Attivo/Efficiente</option>
+              <option value="R">R - In Riparazione</option>
+              <option value="M">M - In Manutenzione</option>
+              <option value="I">I - Inefficiente</option>
+            </select>
           </div>
           <div className="grid grid-cols-3 gap-4">
             <div>
@@ -272,18 +340,20 @@ function FleetView({ aircraft, onAddAircraft, onEditAircraft, onDeleteAircraft, 
         </form>
       </Modal>
 
-      {/* Edit Aircraft Modal */}
       <Modal isOpen={!!editingAc} onClose={() => setEditingAc(null)} title={`Edit Aircraft: ${editingAc?.registration}`}>
         <form onSubmit={(e) => {
           e.preventDefault();
           const fd = new FormData(e.currentTarget);
-          onEditAircraft(editingAc.id, {
-            registration: fd.get('reg'),
-            model: fd.get('model'),
-            avgMonthlyFH: Number(fd.get('avgFH')),
-            avgMonthlyCycles: Number(fd.get('avgC'))
-          });
-          setEditingAc(null);
+          if (editingAc) {
+            onEditAircraft(editingAc.id, {
+              registration: fd.get('reg') as string,
+              model: fd.get('model') as string,
+              status: fd.get('status') as 'A' | 'R' | 'M' | 'I',
+              avgMonthlyFH: Number(fd.get('avgFH')),
+              avgMonthlyCycles: Number(fd.get('avgC'))
+            });
+            setEditingAc(null);
+          }
         }} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -294,6 +364,15 @@ function FleetView({ aircraft, onAddAircraft, onEditAircraft, onDeleteAircraft, 
               <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Model</label>
               <input name="model" defaultValue={editingAc?.model} required className="w-full px-4 py-2 rounded-lg border border-slate-200" />
             </div>
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Stato Operativo</label>
+            <select name="status" defaultValue={editingAc?.status} className="w-full px-4 py-2 rounded-lg border border-slate-200">
+              <option value="A">A - Attivo/Efficiente</option>
+              <option value="R">R - In Riparazione</option>
+              <option value="M">M - In Manutenzione</option>
+              <option value="I">I - Inefficiente</option>
+            </select>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -309,7 +388,6 @@ function FleetView({ aircraft, onAddAircraft, onEditAircraft, onDeleteAircraft, 
         </form>
       </Modal>
 
-      {/* Counters Update Modal */}
       <Modal 
         isOpen={!!selectedAcCounters} 
         onClose={() => setSelectedAcCounters(null)} 
@@ -349,7 +427,109 @@ function FleetView({ aircraft, onAddAircraft, onEditAircraft, onDeleteAircraft, 
   );
 }
 
-function ReportsView({ predictions, components }) {
+function SettingsPage({ aircraft, components, onImport, onReset }: SettingsPageProps) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const data = JSON.parse(event.target?.result as string);
+        if (data.aircraft && data.components) {
+          if (window.confirm("Importazione dati confermata. Sovrascrivere il database attuale?")) {
+            onImport(data.aircraft, data.components);
+          }
+        } else {
+          alert("Formato file non valido.");
+        }
+      } catch (err) {
+        alert("Errore nella lettura del file.");
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  return (
+    <div className="space-y-8 animate-in fade-in duration-500">
+      <header>
+        <h1 className="text-3xl font-bold text-slate-900">System Settings</h1>
+        <p className="text-slate-500">Manage your local database and system preferences.</p>
+      </header>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+        <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200 space-y-6">
+          <div className="flex items-center gap-4">
+            <div className="p-3 bg-blue-100 text-blue-600 rounded-xl">
+              <Database size={28} />
+            </div>
+            <div>
+              <h3 className="text-xl font-bold text-slate-900">Database Management</h3>
+              <p className="text-sm text-slate-400">Current persistence: Web Local Storage</p>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+             <button 
+              onClick={() => storageService.exportBackup(aircraft, components)}
+              className="w-full flex items-center justify-between px-6 py-4 bg-slate-50 hover:bg-blue-50 text-slate-700 hover:text-blue-700 rounded-xl transition-all group border border-slate-100"
+            >
+              <div className="flex items-center gap-3">
+                <Download size={20} className="text-slate-400 group-hover:text-blue-500" />
+                <span className="font-semibold">Export Full Backup</span>
+              </div>
+              <span className="text-xs bg-white px-2 py-1 rounded border text-slate-400 uppercase font-bold">.JSON</span>
+            </button>
+
+            <button 
+              onClick={() => fileInputRef.current?.click()}
+              className="w-full flex items-center justify-between px-6 py-4 bg-slate-50 hover:bg-emerald-50 text-slate-700 hover:text-emerald-700 rounded-xl transition-all group border border-slate-100"
+            >
+              <div className="flex items-center gap-3">
+                <Upload size={20} className="text-slate-400 group-hover:text-emerald-500" />
+                <span className="font-semibold">Import Backup File</span>
+              </div>
+              <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileChange} accept=".json" />
+            </button>
+          </div>
+        </div>
+
+        <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200 space-y-6">
+          <div className="flex items-center gap-4">
+            <div className="p-3 bg-red-100 text-red-600 rounded-xl">
+              <RefreshCcw size={28} />
+            </div>
+            <div>
+              <h3 className="text-xl font-bold text-slate-900">Danger Zone</h3>
+              <p className="text-sm text-slate-400">Irreversible actions on your data.</p>
+            </div>
+          </div>
+
+          <div className="p-4 bg-red-50 border border-red-100 rounded-xl space-y-4">
+            <p className="text-sm text-red-700 leading-relaxed">
+              Resettando il sistema, cancellerai tutti i velivoli, i componenti e le scadenze inserite manualmente. Il sistema tornerà alla configurazione iniziale di fabbrica.
+            </p>
+            <button 
+              onClick={() => {
+                if (window.confirm("AZIONE CRITICA: Sei sicuro di voler cancellare TUTTI i dati? Questa azione non può essere annullata.")) {
+                  onReset();
+                }
+              }}
+              className="flex items-center gap-2 text-red-700 font-bold hover:bg-red-100 px-4 py-2 rounded-lg transition-all"
+            >
+              <Trash2 size={18} />
+              Factory Reset System
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ReportsView({ predictions, components }: ReportsViewProps) {
   const [aiAdvice, setAiAdvice] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -442,15 +622,20 @@ function ReportsView({ predictions, components }) {
 // --- Main App ---
 
 export default function App() {
-  const [aircraft, setAircraft] = useState(INITIAL_AIRCRAFT);
-  const [components, setComponents] = useState(INITIAL_COMPONENTS);
-  const [activeTaskModal, setActiveTaskModal] = useState(null);
+  const [aircraft, setAircraft] = useState<Aircraft[]>(() => storageService.loadData().aircraft);
+  const [components, setComponents] = useState<Component[]>(() => storageService.loadData().components);
+  const [activeTaskModal, setActiveTaskModal] = useState<{component: Component, req: MaintenanceRequirement} | null>(null);
   const [isAddComponentOpen, setIsAddComponentOpen] = useState(false);
-  const [editingComponent, setEditingComponent] = useState(null);
-  const [groundUsageModal, setGroundUsageModal] = useState(null);
+  const [editingComponent, setEditingComponent] = useState<Component | null>(null);
+  const [groundUsageModal, setGroundUsageModal] = useState<Component | null>(null);
+
+  // Auto-sync effect
+  useEffect(() => {
+    storageService.saveData(aircraft, components);
+  }, [aircraft, components]);
 
   const predictions = useMemo(() => {
-    const allPredictions = [];
+    const allPredictions: PredictionResult[] = [];
     components.forEach(comp => {
       const ac = aircraft.find(a => a.id === comp.aircraftId);
       const results = calculatePrediction(comp, ac);
@@ -459,27 +644,37 @@ export default function App() {
     return allPredictions;
   }, [aircraft, components]);
 
+  // System Handlers
+  function handleImport(newAc: Aircraft[], newComp: Component[]) {
+    setAircraft(newAc);
+    setComponents(newComp);
+  }
+
+  function handleReset() {
+    storageService.clearData();
+    const defaults = storageService.loadData();
+    setAircraft(defaults.aircraft);
+    setComponents(defaults.components);
+  }
+
   // Aircraft Handlers
-  function addAircraft(data) {
-    const newAc = {
-      id: `ac-${Date.now()}`,
-      ...data
-    };
+  function addAircraft(data: Omit<Aircraft, 'id'>) {
+    const newAc: Aircraft = { id: `ac-${Date.now()}`, ...data };
     setAircraft(prev => [...prev, newAc]);
   }
 
-  function editAircraft(acId, data) {
+  function editAircraft(acId: string, data: Partial<Aircraft>) {
     setAircraft(prev => prev.map(ac => ac.id === acId ? { ...ac, ...data } : ac));
   }
 
-  function deleteAircraft(acId) {
+  function deleteAircraft(acId: string) {
     if (window.confirm("Eliminando il velivolo, tutti i componenti installati verranno spostati in magazzino. Procedere?")) {
       setAircraft(prev => prev.filter(ac => ac.id !== acId));
       setComponents(prev => prev.map(c => c.aircraftId === acId ? { ...c, aircraftId: null } : c));
     }
   }
 
-  function updateAircraftUsage(acId, fh, oh, cycles) {
+  function updateAircraftUsage(acId: string, fh: number, oh: number, cycles: number) {
     setAircraft(prev => prev.map(ac => ac.id === acId ? {
       ...ac,
       totalFlightHours: fh,
@@ -489,8 +684,8 @@ export default function App() {
   }
 
   // Component Handlers
-  function addComponent(data) {
-    const newComp = {
+  function addComponent(data: any) {
+    const newComp: Component = {
       id: `cmp-${Date.now()}`,
       currentFH: 0,
       currentOH: 0,
@@ -500,17 +695,17 @@ export default function App() {
     setComponents(prev => [...prev, newComp]);
   }
 
-  function editComponent(compId, data) {
+  function editComponent(compId: string, data: Partial<Component>) {
     setComponents(prev => prev.map(c => c.id === compId ? { ...c, ...data } : c));
   }
 
-  function deleteComponent(compId) {
+  function deleteComponent(compId: string) {
     if (window.confirm("Sei sicuro di voler eliminare questo componente? L'azione è irreversibile.")) {
       setComponents(prev => prev.filter(c => c.id !== compId));
     }
   }
 
-  function updateGroundUsage(compId, fh, oh, cycles) {
+  function updateGroundUsage(compId: string, fh: number, oh: number, cycles: number) {
     setComponents(prev => prev.map(c => c.id === compId ? {
       ...c,
       currentFH: fh,
@@ -520,7 +715,7 @@ export default function App() {
     setGroundUsageModal(null);
   }
 
-  function completeMaintenanceTask(compId, reqId, completionValue) {
+  function completeMaintenanceTask(compId: string, reqId: string, completionValue: number | string) {
     setComponents(prev => prev.map(comp => {
       if (comp.id !== compId) return comp;
       return {
@@ -530,7 +725,7 @@ export default function App() {
           
           let nextDueValue = req.nextDueValue;
           if (req.type === MaintenanceType.CALENDAR) {
-            const lastDate = new Date(completionValue);
+            const lastDate = new Date(completionValue as string);
             lastDate.setDate(lastDate.getDate() + Number(req.interval));
             nextDueValue = lastDate.toISOString().split('T')[0];
           } else {
@@ -564,16 +759,20 @@ export default function App() {
             <SidebarLink to="/fleet" icon={Plane} label="Fleet" />
             <SidebarLink to="/components" icon={ClipboardList} label="Inventory" />
             <SidebarLink to="/reports" icon={BarChart3} label="Reports" />
-            <SidebarLink to="/settings" icon={Settings} label="Settings" />
+            <SidebarLink to="/settings" icon={SettingsIcon} label="Settings" />
           </nav>
 
           <div className="p-4 border-t border-slate-800">
             <div className="bg-slate-800/50 rounded-lg p-4">
-              <div className="flex items-center gap-3 mb-2">
+              <div className="flex items-center gap-2 mb-3 px-1">
+                <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+                <span className="text-[10px] uppercase font-black text-slate-500 tracking-widest">Database Local-Sync</span>
+              </div>
+              <div className="flex items-center gap-3">
                 <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-xs font-bold">JD</div>
                 <div className="text-sm">
-                  <div className="font-medium">Admin</div>
-                  <div className="text-slate-400 text-xs truncate">Maintenance Manager</div>
+                  <div className="font-medium text-slate-200">Admin</div>
+                  <div className="text-slate-500 text-xs truncate">Maintenance Unit</div>
                 </div>
               </div>
             </div>
@@ -594,6 +793,7 @@ export default function App() {
                 />
               } />
               <Route path="/reports" element={<ReportsView predictions={predictions} components={components} />} />
+              <Route path="/settings" element={<SettingsPage aircraft={aircraft} components={components} onImport={handleImport} onReset={handleReset} />} />
               <Route path="/components" element={
                 <div className="space-y-6">
                   <div className="flex items-center justify-between">
@@ -638,17 +838,22 @@ export default function App() {
                                     </td>
                                     <td className="px-6 py-4">
                                       {ac ? (
-                                        <div className="flex items-center gap-1.5 text-blue-600 text-xs font-bold">
-                                          <Truck size={14} /> Installed: {ac.registration}
+                                        <div className="flex flex-col gap-1">
+                                          <div className="flex items-center gap-1.5 text-blue-600 text-xs font-bold uppercase">
+                                            <Truck size={14} /> {ac.registration}
+                                          </div>
+                                          <div className="scale-75 origin-left">
+                                            <StatusBadge status={ac.status} />
+                                          </div>
                                         </div>
                                       ) : (
-                                        <div className="flex items-center gap-1.5 text-slate-400 text-xs font-bold">
+                                        <div className="flex items-center gap-1.5 text-slate-400 text-xs font-bold uppercase">
                                           <Box size={14} /> Ground Storage
                                         </div>
                                       )}
                                     </td>
                                     <td className="px-6 py-4 text-slate-600 text-sm">
-                                      <div className="flex items-center gap-2">
+                                      <div className="flex items-center gap-2 font-mono">
                                         {req.type === MaintenanceType.FLIGHT_HOURS && `${(ac?.totalFlightHours ?? c.currentFH).toFixed(1)}h`}
                                         {req.type === MaintenanceType.OPERATING_HOURS && `${(ac?.totalOperatingHours ?? c.currentOH).toFixed(1)}h`}
                                         {req.type === MaintenanceType.CYCLES && `${(ac?.totalCycles ?? c.currentCycles)}c`}
@@ -666,7 +871,7 @@ export default function App() {
                                       </div>
                                     </td>
                                     <td className="px-6 py-4">
-                                      <div className="text-sm font-bold text-slate-900">
+                                      <div className="text-sm font-bold text-slate-900 font-mono">
                                         {req.type === MaintenanceType.CALENDAR ? req.nextDueValue : `${req.nextDueValue}${String(req.type).toLowerCase()}`}
                                       </div>
                                       {pred && (
@@ -715,7 +920,6 @@ export default function App() {
                   </div>
                 </div>
               } />
-              <Route path="*" element={<div className="text-center py-12"><h2 className="text-xl text-slate-400">Settings Coming Soon</h2></div>} />
             </Routes>
           </div>
         </main>
@@ -804,12 +1008,6 @@ export default function App() {
               </div>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-4">
-             <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Lead Time (Days)</label>
-              <input name="leadTime" type="number" defaultValue="7" className="w-full px-4 py-2 rounded-lg border border-slate-200" />
-            </div>
-          </div>
           <button type="submit" className="w-full bg-blue-600 text-white font-bold py-3 rounded-xl hover:bg-blue-700">Complete Registration</button>
         </form>
       </Modal>
@@ -819,14 +1017,23 @@ export default function App() {
         <form onSubmit={(e) => {
           e.preventDefault();
           const fd = new FormData(e.currentTarget);
-          editComponent(editingComponent.id, {
-            name: fd.get('name'),
-            serialNumber: fd.get('sn'),
-            aircraftId: fd.get('acId') === 'ground' ? null : fd.get('acId'),
-            criticality: fd.get('criticality'),
-            leadTimeDays: Number(fd.get('leadTime'))
-          });
-          setEditingComponent(null);
+          if (editingComponent) {
+            const updatedRequirements = editingComponent.requirements.map(req => ({
+              ...req,
+              nextDueValue: req.type === MaintenanceType.CALENDAR 
+                ? fd.get(`nextDue-${req.id}`) as string
+                : Number(fd.get(`nextDue-${req.id}`))
+            }));
+            editComponent(editingComponent.id, {
+              name: fd.get('name') as string,
+              serialNumber: fd.get('sn') as string,
+              aircraftId: fd.get('acId') === 'ground' ? null : fd.get('acId') as string,
+              criticality: fd.get('criticality') as string,
+              leadTimeDays: Number(fd.get('leadTime')),
+              requirements: updatedRequirements
+            });
+            setEditingComponent(null);
+          }
         }} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -855,6 +1062,25 @@ export default function App() {
               </select>
             </div>
           </div>
+          <div className="space-y-3">
+            <h4 className="text-xs font-bold text-slate-900 uppercase">Maintenance Scadences (Next Due)</h4>
+            {editingComponent?.requirements.map(req => (
+              <div key={req.id} className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                <div className="flex justify-between items-center mb-2">
+                   <label className="text-[10px] font-bold text-slate-500 uppercase">{req.description}</label>
+                   <span className="text-[10px] font-mono text-slate-400 bg-white px-1.5 rounded border border-slate-100">{req.type}</span>
+                </div>
+                <input 
+                  name={`nextDue-${req.id}`} 
+                  type={req.type === MaintenanceType.CALENDAR ? 'date' : 'number'}
+                  step="0.1"
+                  defaultValue={req.nextDueValue as string}
+                  required
+                  className="w-full px-3 py-1.5 rounded border border-slate-200 text-sm focus:ring-2 focus:ring-blue-500 outline-none" 
+                />
+              </div>
+            ))}
+          </div>
           <div className="grid grid-cols-2 gap-4">
              <div>
               <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Lead Time (Days)</label>
@@ -870,14 +1096,15 @@ export default function App() {
         <form onSubmit={(e) => {
           e.preventDefault();
           const fd = new FormData(e.currentTarget);
-          updateGroundUsage(
-            groundUsageModal.id,
-            Number(fd.get('fh')),
-            Number(fd.get('oh')),
-            Number(fd.get('cycles'))
-          );
+          if (groundUsageModal) {
+            updateGroundUsage(
+              groundUsageModal.id,
+              Number(fd.get('fh')),
+              Number(fd.get('oh')),
+              Number(fd.get('cycles'))
+            );
+          }
         }} className="space-y-4">
-          <p className="text-xs text-slate-500">Manually update usage for this ground asset (e.g. after bench testing).</p>
           <div className="grid grid-cols-3 gap-4">
             <div>
               <label className="block text-xs font-bold text-slate-500 uppercase mb-1">FH</label>
@@ -902,9 +1129,6 @@ export default function App() {
         onClose={() => setActiveTaskModal(null)} 
         title={`Complete Task: ${activeTaskModal?.req?.description || ''}`}
       >
-        <div className="mb-6">
-          <p className="text-sm text-slate-500">Record maintenance sign-off. Next due date or value will be recalculated based on interval.</p>
-        </div>
         <form onSubmit={(e) => {
           e.preventDefault();
           const formData = new FormData(e.currentTarget);
@@ -913,7 +1137,7 @@ export default function App() {
               activeTaskModal.component.id,
               activeTaskModal.req.id,
               activeTaskModal.req.type === MaintenanceType.CALENDAR 
-                ? formData.get('completionValue')
+                ? formData.get('completionValue') as string
                 : Number(formData.get('completionValue'))
             );
           }
@@ -936,6 +1160,6 @@ export default function App() {
           </button>
         </form>
       </Modal>
-    </div>
+    </HashRouter>
   );
 }

@@ -1,11 +1,12 @@
 
-import { Aircraft, Component, MaintenanceType, Criticality } from './types';
+import { Aircraft, Component, MaintenanceType, Criticality, AircraftStatus } from './types';
 
 export const INITIAL_AIRCRAFT: Aircraft[] = [
   {
     id: 'ac1',
     registration: 'I-MAUR',
     model: 'Cessna 172S',
+    status: 'A',
     totalFlightHours: 2450.5,
     totalOperatingHours: 2580.2,
     totalCycles: 12400,
@@ -16,6 +17,7 @@ export const INITIAL_AIRCRAFT: Aircraft[] = [
     id: 'ac2',
     registration: 'I-FLYH',
     model: 'Piper PA-28',
+    status: 'M',
     totalFlightHours: 1200.0,
     totalOperatingHours: 1280.0,
     totalCycles: 6000,

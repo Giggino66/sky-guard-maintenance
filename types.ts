@@ -12,10 +12,18 @@ export const Criticality = {
   HIGH: 'High'
 };
 
+export const AircraftStatus = {
+  ACTIVE: 'A',
+  REPAIR: 'R',
+  MAINTENANCE: 'M',
+  INEFFICIENT: 'I'
+};
+
 export interface Aircraft {
   id: string;
   registration: string;
   model: string;
+  status: 'A' | 'R' | 'M' | 'I';
   totalFlightHours: number;
   totalOperatingHours: number;
   totalCycles: number;
