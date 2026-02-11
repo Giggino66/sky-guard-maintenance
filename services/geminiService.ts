@@ -3,9 +3,15 @@ import { GoogleGenAI } from "@google/genai";
 import { PredictionResult, Component } from "../types";
 
 export const getMaintenanceAdvice = async (predictions: PredictionResult[], components: Component[]) => {
-  // Initializing GoogleGenAI right before the call to use the latest API key from the environment
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  // Using gemini-3-pro-preview for complex reasoning and strategic summary tasks
+  // Accediamo alla chiave API tramite cast per evitare errori di compilazione TS
+  const apiKey = (process.env as any).API_KEY;
+  
+  if (!apiKey) {
+    console.warn("ATTENZIONE: API_KEY non configurata nelle variabili d'ambiente.");
+    return "Impossibile generare consigli AI: Chiave API mancante. Configura API_KEY su Vercel.";
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
   const model = 'gemini-3-pro-preview';
   
   const prompt = `
@@ -27,10 +33,9 @@ export const getMaintenanceAdvice = async (predictions: PredictionResult[], comp
       model,
       contents: prompt,
     });
-    // Directly accessing .text property as per @google/genai guidelines
-    return response.text;
+    return response.text || "Nessun consiglio generato dall'AI.";
   } catch (error) {
     console.error("Gemini Error:", error);
-    return "Error generating AI advice. Please check your network connection.";
+    return "Errore nella comunicazione con l'AI. Verifica la validità della chiave API e la connessione.";
   }
 };
