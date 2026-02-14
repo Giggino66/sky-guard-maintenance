@@ -3,15 +3,9 @@ import { GoogleGenAI } from "@google/genai";
 import { PredictionResult, Component } from "../types";
 
 export const getMaintenanceAdvice = async (predictions: PredictionResult[], components: Component[]) => {
-  // Accediamo alla chiave API tramite cast per evitare errori di compilazione TS
-  const apiKey = (process.env as any).API_KEY;
-  
-  if (!apiKey) {
-    console.warn("ATTENZIONE: API_KEY non configurata nelle variabili d'ambiente.");
-    return "Impossibile generare consigli AI: Chiave API mancante. Configura API_KEY su Vercel.";
-  }
-
-  const ai = new GoogleGenAI({ apiKey });
+  // Initialize the Gemini client following best practices: use process.env.API_KEY directly via a named parameter.
+  // We assume process.env.API_KEY is available as per environment configuration.
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
   const model = 'gemini-3-pro-preview';
   
   const prompt = `
@@ -33,6 +27,7 @@ export const getMaintenanceAdvice = async (predictions: PredictionResult[], comp
       model,
       contents: prompt,
     });
+    // Use .text property to access the generated content as per latest SDK guidelines.
     return response.text || "Nessun consiglio generato dall'AI.";
   } catch (error) {
     console.error("Gemini Error:", error);

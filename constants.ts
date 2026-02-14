@@ -1,12 +1,12 @@
 
-import { Aircraft, Component, MaintenanceType, Criticality, AircraftStatus } from './types';
+import { Aircraft, Component, MaintenanceType, Criticality } from './types';
 
 export const INITIAL_AIRCRAFT: Aircraft[] = [
   {
     id: 'ac1',
     registration: 'I-MAUR',
     model: 'Cessna 172S',
-    status: 'A',
+    status: 'EFF',
     totalFlightHours: 2450.5,
     totalOperatingHours: 2580.2,
     totalCycles: 12400,
@@ -17,7 +17,7 @@ export const INITIAL_AIRCRAFT: Aircraft[] = [
     id: 'ac2',
     registration: 'I-FLYH',
     model: 'Piper PA-28',
-    status: 'M',
+    status: 'PROG',
     totalFlightHours: 1200.0,
     totalOperatingHours: 1280.0,
     totalCycles: 6000,
@@ -49,23 +49,23 @@ export const INITIAL_COMPONENTS: Component[] = [
     ]
   },
   {
-    id: 'cmp4',
-    name: 'ELT Battery (Spare)',
-    serialNumber: 'ELT-SP-99',
-    aircraftId: null, // Ground
+    id: 'cmp2',
+    name: 'ELT Battery',
+    serialNumber: 'ELT-9988',
+    aircraftId: 'ac1',
     criticality: Criticality.MEDIUM,
-    leadTimeDays: 10,
+    leadTimeDays: 15,
     currentFH: 0,
     currentOH: 0,
     currentCycles: 0,
     requirements: [
       {
-        id: 'req4',
+        id: 'req2',
         type: MaintenanceType.CALENDAR,
         interval: 730,
-        lastPerformedValue: '2023-01-15',
-        nextDueValue: '2025-01-15',
-        description: 'Shelf Life Expiry'
+        lastPerformedValue: '2023-01-01',
+        nextDueValue: '2025-01-01',
+        description: 'Battery Expiry'
       }
     ]
   }

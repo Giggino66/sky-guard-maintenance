@@ -12,18 +12,14 @@ export const Criticality = {
   HIGH: 'High'
 };
 
-export const AircraftStatus = {
-  ACTIVE: 'A',
-  REPAIR: 'R',
-  MAINTENANCE: 'M',
-  INEFFICIENT: 'I'
-};
+// Nuovi stati richiesti
+export type AircraftStatus = 'EFF' | 'LIM' | 'COR' | 'PROG' | 'INE';
 
 export interface Aircraft {
   id: string;
   registration: string;
   model: string;
-  status: 'A' | 'R' | 'M' | 'I';
+  status: AircraftStatus;
   totalFlightHours: number;
   totalOperatingHours: number;
   totalCycles: number;
@@ -33,7 +29,7 @@ export interface Aircraft {
 
 export interface MaintenanceRequirement {
   id: string;
-  type: string;
+  type: string; // FH, CAL
   interval: number;
   lastPerformedValue: number | string;
   nextDueValue: number | string;
@@ -48,7 +44,6 @@ export interface Component {
   criticality: string;
   requirements: MaintenanceRequirement[];
   leadTimeDays: number;
-  // Tracking for ground items
   currentFH: number;
   currentOH: number;
   currentCycles: number;
