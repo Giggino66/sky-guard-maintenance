@@ -3,54 +3,63 @@ import { GoogleGenAI } from "@google/genai";
 import { PredictionResult, Component } from "../types";
 
 export const getMaintenanceAdvice = async (predictions: PredictionResult[], components: Component[]) => {
-  // Always initialize GoogleGenAI with a named parameter and obtain the API key exclusively from process.env.API_KEY.
+  // Initialize AI with the environment API KEY
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  // Utilizziamo gemini-3-flash-preview per analisi testuali rapide e affidabili
+  
+  // Use gemini-3-flash-preview for fast and reliable reasoning on tabular data
   const model = 'gemini-3-flash-preview';
   
-  // Filtriamo i dati critici per non sovraccaricare il contesto
-  const criticalItems = predictions.filter(p => p.daysRemaining < 90).slice(0, 15);
-  
+  // Prepare a refined context of critical maintenance tasks
+  const criticalTasks = predictions
+    .filter(p => p.daysRemaining < 60)
+    .slice(0, 20)
+    .map(p => ({
+      Component: p.componentName,
+      // Fixed: Quoted key "A/C" to avoid being interpreted as an arithmetic division operation (A / C)
+      "A/C": p.aircraftRegistration,
+      Requirement: p.requirementDescription,
+      RemainingDays: p.daysRemaining,
+      DueDate: p.estimatedDueDate.toLocaleDateString(),
+      Severity: p.actionRequired
+    }));
+
+  const systemInstruction = `Sei un esperto Ingegnere di Manutenzione Aeronautica (CAMO Manager). 
+Analizza i dati della flotta e fornisci un report strategico conciso e tecnico. 
+Focalizzati sulla sicurezza del volo e sull'ottimizzazione del fermo macchina. 
+Rispondi sempre in italiano professionale. Usa il grassetto per evidenziare i punti critici.`;
+
   const prompt = `
-    Sei un ingegnere capo di manutenzione aeronautica per un aeroclub. 
-    Analizza i seguenti dati sulle scadenze dei componenti e fornisci un report strategico.
-    
-    Usa un tono professionale, autoritario ma costruttivo. 
-    Il report deve contenere:
-    1. ANALISI URGENZE: Identifica i componenti con scadenza < 15 giorni.
-    2. PIANO DI PROCUREMENT: Suggerisci quali parti ordinare subito considerando i lead time.
-    3. OTTIMIZZAZIONE: Consiglia come raggruppare gli interventi per minimizzare il fermo macchina (hangarage).
-    4. RISCHI: Avvisa sui pericoli di superamento scadenze per la sicurezza volo.
+Analizza questa situazione della flotta:
 
-    DATI SCADENZE (Prossimi 90 giorni):
-    ${JSON.stringify(criticalItems, null, 2)}
-    
-    DETTAGLI COMPONENTI (Lead times & Criticità):
-    ${JSON.stringify(components.map(c => ({ name: c.name, leadTime: c.leadTimeDays, criticality: c.criticality })), null, 2)}
+SCADENZE CRITICHE:
+${JSON.stringify(criticalTasks, null, 2)}
 
-    Rispondi in italiano. Usa Markdown per la formattazione (titoli, liste, grassetto).
+DETTAGLI COMPONENTI (Inventory):
+${JSON.stringify(components.map(c => ({ name: c.name, leadTime: c.leadTimeDays, criticality: c.criticality })), null, 2)}
+
+Genera un report suddiviso in:
+1. **STATO DI ALLERTA IMMEDIATA**: Azioni da compiere entro 7 giorni.
+2. **PIANIFICAZIONE LOGISTICA**: Parti da ordinare subito (considerando i lead times).
+3. **STRATEGIA HANGAR**: Suggerimenti per raggruppare i lavori.
+4. **VALUTAZIONE RISCHIO**: Impatto sulla disponibilità operativa dell'aeroclub.
   `;
 
   try {
-    // Correctly call generateContent with model and contents (simple string for text prompts is preferred).
+    // Corrected: Using a simplified contents parameter and providing systemInstruction within config
     const response = await ai.models.generateContent({
-      model,
+      model: model,
       contents: prompt,
+      config: {
+        systemInstruction: systemInstruction,
+        temperature: 0.7,
+      }
     });
 
-    // Directly access the .text property on the GenerateContentResponse object.
-    if (!response || !response.text) {
-      console.warn("Risposta vuota dal modello Gemini.");
-      return "Il sistema AI non ha prodotto risultati. Riprova tra qualche istante.";
-    }
-
-    return response.text;
+    // response.text is a property, not a method
+    return response.text || "Impossibile generare il report al momento. Verifica la configurazione dell'API.";
   } catch (error: any) {
-    console.error("Gemini Error:", error);
-    // Gestione errori specifica per superamento limiti o chiavi non valide
-    if (error.message?.includes("429") || error.message?.includes("quota")) {
-      return "Limite di richieste AI superato. Riprova più tardi.";
-    }
-    return `Errore tecnico durante l'analisi AI: ${error.message || "Connessione fallita"}`;
+    console.error("Gemini API Error:", error);
+    if (error.message?.includes("429")) return "Limite di quota raggiunto. Riprova tra un minuto.";
+    return "Errore di comunicazione con il centro analisi AI. Verifica la connessione.";
   }
 };
