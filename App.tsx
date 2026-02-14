@@ -28,7 +28,8 @@ import {
   Layers,
   Fuel,
   Wind,
-  RefreshCw
+  RefreshCw,
+  Key
 } from 'lucide-react';
 import { 
   Aircraft, 
@@ -119,10 +120,30 @@ export default function App() {
 
   const [aiAdvice, setAiAdvice] = useState<string>("");
   const [loadingAi, setLoadingAi] = useState(false);
+  const [isApiConfigured, setIsApiConfigured] = useState(false);
 
   useEffect(() => {
     storageService.saveData(aircraft, components);
+    checkApiKey();
   }, [aircraft, components]);
+
+  const checkApiKey = async () => {
+    if (window.aistudio?.hasSelectedApiKey) {
+      const hasKey = await window.aistudio.hasSelectedApiKey();
+      setIsApiConfigured(hasKey);
+    } else if (process.env.API_KEY) {
+      setIsApiConfigured(true);
+    }
+  };
+
+  const handleOpenApiKey = async () => {
+    if (window.aistudio?.openSelectKey) {
+      await window.aistudio.openSelectKey();
+      setIsApiConfigured(true);
+    } else {
+      alert("Configurazione automatica non disponibile in questo ambiente. Assicurati che process.env.API_KEY sia impostato.");
+    }
+  };
 
   const predictions = useMemo(() => {
     const all: PredictionResult[] = [];
@@ -197,12 +218,28 @@ export default function App() {
   };
 
   const handleAskAi = async () => {
+    const hasKey = window.aistudio?.hasSelectedApiKey ? await window.aistudio.hasSelectedApiKey() : !!process.env.API_KEY;
+    
+    if (!hasKey) {
+      if (confirm("API Key non configurata. Desideri configurarla ora?")) {
+        await handleOpenApiKey();
+        // Proceeding after triggering selection (assuming success as per guidelines)
+      } else {
+        return;
+      }
+    }
+
     setLoadingAi(true);
     try {
       const advice = await getMaintenanceAdvice(predictions, components);
-      setAiAdvice(advice);
+      if (advice.includes("404") || advice.includes("not found")) {
+        setAiAdvice("Errore: La chiave API selezionata non sembra valida o il progetto non esiste. Riprova la configurazione.");
+        await handleOpenApiKey();
+      } else {
+        setAiAdvice(advice);
+      }
     } catch (err) {
-      setAiAdvice("Errore durante l'analisi AI. Verificare la chiave API.");
+      setAiAdvice("Errore durante l'analisi AI. Verifica la connessione e la validità della chiave API.");
     } finally {
       setLoadingAi(false);
     }
@@ -250,14 +287,16 @@ export default function App() {
             <SidebarLink to="/settings" icon={SettingsIcon} label="System Config" />
           </nav>
 
-          <div className="p-8">
+          <div className="p-8 space-y-4">
             <div className="bg-slate-800/50 rounded-3xl p-5 border border-slate-700/50">
                <div className="flex items-center gap-3 mb-3">
-                 <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                 <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">System Online</span>
+                 <div className={`w-2 h-2 rounded-full ${isApiConfigured ? 'bg-emerald-500' : 'bg-red-500'} animate-pulse`} />
+                 <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                   {isApiConfigured ? 'AI Service Connected' : 'AI Offline (No Key)'}
+                 </span>
                </div>
                <div className="text-[10px] text-slate-500 font-mono leading-tight">
-                 VER: 1.1.5-FIX<br/>
+                 VER: 1.1.6-API-FIX<br/>
                  LOC: LIRF (Roma)
                </div>
             </div>
@@ -478,24 +517,32 @@ export default function App() {
                    <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
                      <div className="bg-slate-900 p-12 rounded-[3.5rem] border border-slate-800 shadow-sm space-y-8 hover:border-blue-500/50 transition-all">
                        <div className="flex items-center gap-5 text-blue-500">
-                         <div className="p-4 bg-blue-500/10 rounded-2xl border border-blue-500/20"><Database size={28}/></div>
-                         <h3 className="font-black text-sm uppercase tracking-[0.2em] text-white">Cloud Archive</h3>
+                         <div className="p-4 bg-blue-500/10 rounded-2xl border border-blue-500/20"><Key size={28}/></div>
+                         <h3 className="font-black text-sm uppercase tracking-[0.2em] text-white">Gemini AI Setup</h3>
                        </div>
-                       <p className="text-sm text-slate-500 font-medium leading-relaxed">Genera un export critico del database aeronautico per l'archiviazione fuori linea in formato JSON.</p>
-                       <button onClick={handleExport} className="w-full flex items-center justify-center gap-4 bg-white text-slate-900 py-5 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-blue-500 hover:text-white transition-all">
-                         <Download size={20} /> Deploy Export
+                       <p className="text-sm text-slate-500 font-medium leading-relaxed">
+                         Collega il tuo progetto Google Cloud per abilitare le analisi predittive. 
+                         <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" className="text-blue-400 hover:underline block mt-2">Guida alla fatturazione API</a>
+                       </p>
+                       <button onClick={handleOpenApiKey} className="w-full flex items-center justify-center gap-4 bg-blue-600 text-white py-5 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-blue-500 transition-all shadow-lg shadow-blue-600/30">
+                         <Key size={20} /> {isApiConfigured ? 'Update API Key' : 'Configure API Key'}
                        </button>
                      </div>
 
                      <div className="bg-slate-900 p-12 rounded-[3.5rem] border border-slate-800 shadow-sm space-y-8 hover:border-emerald-500/50 transition-all">
                        <div className="flex items-center gap-5 text-emerald-500">
-                         <div className="p-4 bg-emerald-500/10 rounded-2xl border border-emerald-500/20"><Upload size={28}/></div>
-                         <h3 className="font-black text-sm uppercase tracking-[0.2em] text-white">System Restore</h3>
+                         <div className="p-4 bg-emerald-500/10 rounded-2xl border border-emerald-500/20"><Database size={28}/></div>
+                         <h3 className="font-black text-sm uppercase tracking-[0.2em] text-white">Archive & Restore</h3>
                        </div>
-                       <p className="text-sm text-slate-500 font-medium leading-relaxed">Inietta un backup esistente nel registro di sistema locale. Sovrascriverà tutti i dati attivi.</p>
-                       <button onClick={handleImportClick} className="w-full flex items-center justify-center gap-4 bg-slate-800 text-white py-5 rounded-2xl font-black text-xs uppercase tracking-widest border border-slate-700 hover:border-emerald-500 transition-all">
-                         <Upload size={20} /> Initialize Restore
-                       </button>
+                       <p className="text-sm text-slate-500 font-medium leading-relaxed">Gestisci i backup locali del database flotta SkyGuard in formato JSON.</p>
+                       <div className="flex gap-4">
+                        <button onClick={handleExport} className="flex-1 flex items-center justify-center gap-4 bg-white text-slate-900 py-4 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-slate-200 transition-all">
+                           <Download size={18} /> Export
+                        </button>
+                        <button onClick={handleImportClick} className="flex-1 flex items-center justify-center gap-4 bg-slate-800 text-white py-4 rounded-xl font-black text-xs uppercase tracking-widest border border-slate-700 hover:border-emerald-500 transition-all">
+                           <Upload size={18} /> Restore
+                        </button>
+                       </div>
                        <input type="file" ref={fileInputRef} className="hidden" accept=".json" onChange={handleFileChange} />
                      </div>
                    </div>
