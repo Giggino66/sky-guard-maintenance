@@ -4,14 +4,13 @@ import { PredictionResult, Component } from "../types";
 
 export const getMaintenanceAdvice = async (predictions: PredictionResult[], components: Component[]) => {
   // Always obtain the API key from process.env.API_KEY injected at runtime
-  const apiKey = process.env.API_KEY;
-
-  if (!apiKey || apiKey === "undefined") {
+  if (!process.env.API_KEY || process.env.API_KEY === "undefined") {
     throw new Error("API_KEY_MISSING");
   }
 
   // Create a fresh instance to ensure we use the current key from the selection dialog
-  const ai = new GoogleGenAI({ apiKey });
+  // Fixed: Always use direct named parameter for apiKey from process.env.API_KEY
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   // Use Gemini 3 Flash for efficient reasoning and fast performance
   const model = 'gemini-3-flash-preview';
@@ -60,11 +59,13 @@ Genera un report strutturato come segue:
       }
     });
 
-    if (!response.text) {
+    // Fixed: The .text is a getter property, not a method.
+    const text = response.text;
+    if (!text) {
       throw new Error("EMPTY_RESPONSE");
     }
 
-    return response.text;
+    return text;
   } catch (error: any) {
     console.error("Gemini API Error Detail:", error);
     

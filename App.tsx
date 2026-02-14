@@ -4,8 +4,6 @@ import { HashRouter, Routes, Route, Link, useLocation } from 'react-router-dom';
 import { 
   Plane, 
   LayoutDashboard, 
-  ClipboardList, 
-  AlertTriangle, 
   Plus, 
   Sparkles,
   Clock,
@@ -17,7 +15,6 @@ import {
   Wrench,
   Edit2,
   Info,
-  ShieldCheck,
   ShieldAlert,
   Download,
   Upload,
@@ -26,15 +23,12 @@ import {
   Activity,
   Gauge,
   Layers,
-  Fuel,
-  Wind,
   RefreshCw,
   Key
 } from 'lucide-react';
 import { 
   Aircraft, 
   Component, 
-  MaintenanceType, 
   Criticality, 
   PredictionResult, 
   AircraftStatus
@@ -43,31 +37,31 @@ import { calculatePrediction } from './utils/maintenance';
 import { getMaintenanceAdvice } from './services/geminiService';
 import { storageService } from './services/storageService';
 
-// --- Global Type Definitions for Gemini API Studio Integration ---
+// --- Global Type Definitions ---
 
 declare global {
-  /* Fix: Define the AIStudio interface as expected by the environment and use readonly modifier for window.aistudio */
   interface AIStudio {
     hasSelectedApiKey: () => Promise<boolean>;
     openSelectKey: () => Promise<void>;
   }
 
   interface Window {
-    readonly aistudio: AIStudio;
+    // Fixed: Make aistudio optional to ensure identical modifiers across possible multiple declarations.
+    aistudio?: AIStudio;
   }
 }
 
-// --- Improved Status Badges with Aviation Styling ---
+// --- Aviation Status Badges (Dark Mode HUD) ---
 
 const StatusBadge = ({ status }: { status: AircraftStatus }) => {
-  const configs: Record<AircraftStatus, { label: string; color: string; dot: string; icon: any }> = {
-    'EFF': { label: 'Efficiente', color: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20', dot: 'bg-emerald-500', icon: CheckCircle2 },
-    'LIM': { label: 'Limitato', color: 'bg-blue-500/10 text-blue-400 border-blue-500/20', dot: 'bg-blue-500', icon: Navigation },
-    'COR': { label: 'Correttiva', color: 'bg-orange-500/10 text-orange-400 border-orange-500/20', dot: 'bg-orange-500', icon: Wrench },
-    'PROG': { label: 'Programmata', color: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20', dot: 'bg-indigo-500', icon: Clock },
-    'INE': { label: 'Inefficiente', color: 'bg-red-500/10 text-red-400 border-red-500/20', dot: 'bg-red-500', icon: ShieldAlert }
+  const configs: Record<AircraftStatus, { label: string; color: string; dot: string }> = {
+    'EFF': { label: 'Efficiente', color: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20', dot: 'bg-emerald-500' },
+    'LIM': { label: 'Limitato', color: 'bg-blue-500/10 text-blue-400 border-blue-500/20', dot: 'bg-blue-500' },
+    'COR': { label: 'Correttiva', color: 'bg-orange-500/10 text-orange-400 border-orange-500/20', dot: 'bg-orange-500' },
+    'PROG': { label: 'Programmata', color: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20', dot: 'bg-indigo-500' },
+    'INE': { label: 'Inefficiente', color: 'bg-red-500/10 text-red-400 border-red-500/20', dot: 'bg-red-500' }
   };
-  const { label, color, dot, icon: Icon } = configs[status];
+  const { label, color, dot } = configs[status];
   return (
     <span className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest border ${color}`}>
       <div className={`w-1.5 h-1.5 rounded-full ${dot} animate-pulse`} />
@@ -76,7 +70,7 @@ const StatusBadge = ({ status }: { status: AircraftStatus }) => {
   );
 };
 
-// --- Custom Sidebar Link ---
+// --- Custom Sidebar Link (Dark Mode) ---
 
 function SidebarLink({ to, icon: Icon, label }: { to: string; icon: React.ElementType; label: string }) {
   const location = useLocation();
@@ -97,7 +91,7 @@ function SidebarLink({ to, icon: Icon, label }: { to: string; icon: React.Elemen
   );
 }
 
-// --- Glass Modal ---
+// --- Modern Glass Modal ---
 
 function Modal({ isOpen, onClose, title, children }: { isOpen: boolean; onClose: () => void; title: string; children?: React.ReactNode }) {
   if (!isOpen) return null;
@@ -155,7 +149,7 @@ export default function App() {
       await window.aistudio.openSelectKey();
       setIsApiConfigured(true);
     } else {
-      alert("Configurazione automatica non disponibile in questo ambiente.");
+      alert("Configurazione automatica non disponibile.");
     }
   };
 
@@ -197,7 +191,7 @@ export default function App() {
   };
 
   const deleteAircraft = (id: string) => {
-    if (confirm("Attenzione: Procedere con l'eliminazione del velivolo?")) {
+    if (confirm("Attenzione: Procedere con l'eliminazione definitiva del velivolo?")) {
       setAircraft(aircraft.filter(a => a.id !== id));
       setComponents(components.map(c => c.aircraftId === id ? { ...c, aircraftId: null } : c));
     }
@@ -232,34 +226,24 @@ export default function App() {
   };
 
   const handleAskAi = async () => {
-    // Check key status
     const hasKey = window.aistudio?.hasSelectedApiKey ? await window.aistudio.hasSelectedApiKey() : !!process.env.API_KEY;
-    
     if (!hasKey) {
       if (confirm("Chiave API Gemini non configurata. È necessaria per generare il report. Configurala ora?")) {
         await handleOpenApiKey();
-        // Assume key selection was successful and proceed as per guidelines
-      } else {
-        return;
-      }
+      } else return;
     }
 
     setLoadingAi(true);
     setAiAdvice(""); 
-
     try {
       const advice = await getMaintenanceAdvice(predictions, components);
       setAiAdvice(advice);
     } catch (err: any) {
-      console.error("AI Report Error:", err);
-      
-      if (err.message === "API_KEY_MISSING") {
-        await handleOpenApiKey();
-      } else if (err.message === "ENTITY_NOT_FOUND") {
-        alert("La chiave API selezionata non è valida o il progetto è inesistente. Riconfigurazione richiesta.");
+      if (err.message === "ENTITY_NOT_FOUND") {
+        alert("Chiave API non valida. Riconfigurazione richiesta.");
         await handleOpenApiKey();
       } else {
-        setAiAdvice("Si è verificato un errore tecnico. Assicurati che il tuo progetto Google Cloud abbia la fatturazione attiva.");
+        setAiAdvice("Si è verificato un errore tecnico nell'analisi Gemini.");
       }
     } finally {
       setLoadingAi(false);
@@ -287,7 +271,7 @@ export default function App() {
     <HashRouter>
       <div className="flex min-h-screen text-slate-200">
         
-        {/* Sidebar: Navigation & Identity */}
+        {/* Sidebar: Reverted to Original Dark Side Deck */}
         <aside className="w-72 bg-slate-900 border-r border-slate-800 flex flex-col sticky top-0 h-screen">
           <div className="p-10 mb-6">
             <div className="flex items-center gap-4 group">
@@ -317,7 +301,7 @@ export default function App() {
                  </span>
                </div>
                <div className="text-[10px] text-slate-500 font-mono leading-tight">
-                 VER: 1.1.8-FINAL<br/>
+                 VER: 1.2.0-STABLE<br/>
                  LOC: LIRF (Roma)
                </div>
             </div>
@@ -325,7 +309,7 @@ export default function App() {
         </aside>
 
         {/* Main Viewport */}
-        <main className="flex-1 p-12 lg:p-16 overflow-auto">
+        <main className="flex-1 p-12 lg:p-16 overflow-auto bg-slate-950/20">
           <div className="max-w-7xl mx-auto">
             <Routes>
               <Route path="/" element={
@@ -344,7 +328,7 @@ export default function App() {
                     </button>
                   </header>
 
-                  {/* AI Advice: HUD Style */}
+                  {/* AI Advice: Reverted HUD Style */}
                   {aiAdvice && (
                     <div className="glass-panel p-10 rounded-[2.5rem] border-blue-500/20 hud-glow animate-in fade-in slide-in-from-top-6 duration-700 relative overflow-hidden group">
                       <div className="absolute top-0 left-0 w-1 h-full bg-blue-500/50" />
@@ -367,7 +351,7 @@ export default function App() {
                     {[
                       { label: 'Airworthy', val: aircraft.filter(a => a.status === 'EFF' || a.status === 'LIM').length, color: 'text-emerald-400', icon: CheckCircle2 },
                       { label: 'Ground/Hangar', val: aircraft.filter(a => a.status === 'COR' || a.status === 'PROG').length, color: 'text-indigo-400', icon: Wrench },
-                      { label: 'AOG/Inactive', val: aircraft.filter(a => a.status === 'INE').length, color: 'text-red-500', icon: AlertTriangle },
+                      { label: 'AOG/Inactive', val: aircraft.filter(a => a.status === 'INE').length, color: 'text-red-500', icon: ShieldAlert },
                       { label: 'Total Components', val: components.length, color: 'text-blue-400', icon: Layers },
                     ].map((stat, i) => (
                       <div key={i} className="bg-slate-900/50 p-8 rounded-[2rem] border border-slate-800 hover:border-slate-700 transition-all group">
@@ -379,7 +363,7 @@ export default function App() {
                     ))}
                   </div>
 
-                  {/* Maintenance Priorities Table */}
+                  {/* Priority Table Table */}
                   <div className="bg-slate-900/80 rounded-[3rem] border border-slate-800 overflow-hidden shadow-2xl">
                     <div className="px-10 py-8 border-b border-slate-800 bg-slate-900/50 flex items-center justify-between">
                       <div className="flex items-center gap-4">
@@ -430,7 +414,7 @@ export default function App() {
                   </header>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
                     {aircraft.map(ac => (
-                      <div key={ac.id} className="bg-slate-900 border border-slate-800 p-12 rounded-[3.5rem] relative overflow-hidden group hover:border-blue-500/50 transition-all hover:shadow-[0_0_50px_rgba(0,0,0,0.3)]">
+                      <div key={ac.id} className="bg-slate-900 border border-slate-800 p-12 rounded-[3.5rem] relative overflow-hidden group hover:border-blue-500/50 transition-all">
                         <div className="absolute top-0 right-0 p-10 opacity-5 group-hover:opacity-10 transition-opacity">
                            <Plane size={150} strokeWidth={1} />
                         </div>
@@ -441,7 +425,7 @@ export default function App() {
                           </div>
                           <div className="flex flex-col items-end gap-3">
                             <StatusBadge status={ac.status} />
-                            <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-all transform translate-y-2 group-hover:translate-y-0">
+                            <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-all">
                               <button onClick={() => { setEditingAircraft(ac); setIsAddAircraftOpen(true); }} className="p-3 bg-slate-800 text-slate-400 rounded-xl hover:bg-blue-600 hover:text-white transition-all"><Edit2 size={16} /></button>
                               <button onClick={() => deleteAircraft(ac.id)} className="p-3 bg-slate-800 text-slate-400 rounded-xl hover:bg-red-600 hover:text-white transition-all"><Trash2 size={16} /></button>
                             </div>
@@ -508,10 +492,9 @@ export default function App() {
                               <div className="space-y-2">
                                 {c.requirements.map((r, i) => (
                                   <div key={i} className="text-xs font-bold text-slate-400 flex items-center gap-3">
-                                    <Gauge size={14} className="text-slate-600" />
+                                    <RefreshCw size={14} className="text-slate-600" />
                                     {r.description}: <span className="font-mono text-white ml-auto">
                                       {r.nextDueValue}
-                                      {r.type === 'FH' ? 'h' : r.type === 'C' ? 'c' : ''}
                                     </span>
                                   </div>
                                 ))}
@@ -547,21 +530,18 @@ export default function App() {
                          <div className="p-4 bg-blue-500/10 rounded-2xl border border-blue-500/20"><Key size={28}/></div>
                          <h3 className="font-black text-sm uppercase tracking-[0.2em] text-white">Gemini AI Setup</h3>
                        </div>
-                       <p className="text-sm text-slate-500 font-medium leading-relaxed">
-                         Collega il tuo progetto Google Cloud per abilitare le analisi predittive. 
-                         <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" className="text-blue-400 hover:underline block mt-2">Guida alla fatturazione API</a>
-                       </p>
-                       <button onClick={handleOpenApiKey} className="w-full flex items-center justify-center gap-4 bg-blue-600 text-white py-5 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-blue-500 transition-all shadow-lg shadow-blue-600/30">
-                         <Key size={20} /> {isApiConfigured ? 'Update API Key' : 'Configure API Key'}
+                       <p className="text-sm text-slate-500 font-medium leading-relaxed">Attiva le analisi predittive collegando la tua chiave API di Google AI Studio.</p>
+                       <button onClick={handleOpenApiKey} className="w-full flex items-center justify-center gap-4 bg-blue-600 text-white py-5 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-blue-500 transition-all">
+                         <Key size={20} /> {isApiConfigured ? 'Aggiorna Chiave API' : 'Configura Chiave API'}
                        </button>
                      </div>
 
                      <div className="bg-slate-900 p-12 rounded-[3.5rem] border border-slate-800 shadow-sm space-y-8 hover:border-emerald-500/50 transition-all">
                        <div className="flex items-center gap-5 text-emerald-500">
                          <div className="p-4 bg-emerald-500/10 rounded-2xl border border-emerald-500/20"><Database size={28}/></div>
-                         <h3 className="font-black text-sm uppercase tracking-[0.2em] text-white">Archive & Restore</h3>
+                         <h3 className="font-black text-sm uppercase tracking-[0.2em] text-white">Backup Dati</h3>
                        </div>
-                       <p className="text-sm text-slate-500 font-medium leading-relaxed">Gestisci i backup locali del database flotta SkyGuard in formato JSON.</p>
+                       <p className="text-sm text-slate-500 font-medium leading-relaxed">Esporta o ripristina i dati locali della flotta in formato JSON.</p>
                        <div className="flex gap-4">
                         <button onClick={handleExport} className="flex-1 flex items-center justify-center gap-4 bg-white text-slate-900 py-4 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-slate-200 transition-all">
                            <Download size={18} /> Export
@@ -575,11 +555,10 @@ export default function App() {
                    </div>
 
                    <div className="glass-panel p-10 rounded-[3rem] border-amber-500/20 flex gap-8 items-start relative overflow-hidden">
-                     <div className="absolute top-0 right-0 p-8 opacity-10"><Info size={80} /></div>
-                     <div className="p-4 bg-amber-500/10 text-amber-500 rounded-2xl shrink-0 border border-amber-500/20"><ShieldAlert size={28} /></div>
+                     <div className="p-4 bg-amber-500/10 text-amber-500 rounded-2xl shrink-0 border border-amber-500/20"><Info size={28} /></div>
                      <div className="space-y-3 relative z-10">
                        <h4 className="font-black text-amber-500 text-sm uppercase tracking-[0.2em]">Safety Compliance Notice</h4>
-                       <p className="text-sm text-slate-400 leading-relaxed font-medium">I dati gestiti in SkyGuard sono residenti localmente. In conformità con le norme di sicurezza volo, si raccomanda di effettuare un backup settimanale per prevenire la perdita accidentale di dati telemetrici e record di manutenzione.</p>
+                       <p className="text-sm text-slate-400 leading-relaxed font-medium">I dati sono salvati esclusivamente nel browser. Si raccomanda un backup settimanale per garantire la compliance manutentiva.</p>
                      </div>
                    </div>
                 </div>
@@ -589,98 +568,77 @@ export default function App() {
         </main>
       </div>
 
-      {/* --- Modals: Enhanced with Cockpit Aesthetics --- */}
+      {/* --- Dark Modals --- */}
 
-      {/* Modal: Aircraft (Add/Edit) */}
-      <Modal isOpen={isAddAircraftOpen} onClose={() => { setIsAddAircraftOpen(false); setEditingAircraft(null); }} title={editingAircraft ? "Configure Aircraft" : "Register Aircraft Unit"}>
+      {/* Modal: Aircraft */}
+      <Modal isOpen={isAddAircraftOpen} onClose={() => { setIsAddAircraftOpen(false); setEditingAircraft(null); }} title={editingAircraft ? "Configura Velivolo" : "Registrazione Velivolo"}>
         <form onSubmit={saveAircraft} className="space-y-8">
           <div className="grid grid-cols-2 gap-6">
             <div className="space-y-2">
-              <label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] px-1">Registration</label>
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Marca / Marche</label>
               <input name="registration" defaultValue={editingAircraft?.registration} placeholder="I-XXXX" required className="w-full px-5 py-4 bg-slate-800 rounded-2xl border border-slate-700 outline-none focus:ring-2 focus:ring-blue-600 text-white font-black font-mono uppercase tracking-widest" />
             </div>
             <div className="space-y-2">
-              <label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] px-1">Type/Model</label>
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Modello Velivolo</label>
               <input name="model" defaultValue={editingAircraft?.model} placeholder="Cessna 172" required className="w-full px-5 py-4 bg-slate-800 rounded-2xl border border-slate-700 outline-none focus:ring-2 focus:ring-blue-600 text-white font-bold" />
             </div>
           </div>
           <div className="space-y-2">
-             <label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] px-1">Technical Status Category</label>
+             <label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Stato Tecnico</label>
              <select name="status" defaultValue={editingAircraft?.status || 'EFF'} className="w-full px-5 py-4 bg-slate-800 rounded-2xl border border-slate-700 outline-none text-white font-bold appearance-none cursor-pointer focus:ring-2 focus:ring-blue-600">
-               <option value="EFF">Efficiente (AIRWORTHY)</option>
-               <option value="LIM">Efficiente Limitato (VFR ONLY)</option>
+               <option value="EFF">Efficiente (Airworthy)</option>
+               <option value="LIM">Efficiente Limitato (VFR Only)</option>
                <option value="COR">Manutenzione Correttiva</option>
                <option value="PROG">Manutenzione Programmata</option>
-               <option value="INE">Inefficiente (AOG)</option>
+               <option value="INE">Inefficiente (Grounded)</option>
              </select>
           </div>
           <div className="grid grid-cols-2 gap-6">
             <div className="space-y-2">
-              <label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] px-1">Airframe Total Time (FH)</label>
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Ore di Volo Totali</label>
               <input type="number" step="0.1" name="fh" defaultValue={editingAircraft?.totalFlightHours} required className="w-full px-5 py-4 bg-slate-800 rounded-2xl border border-slate-700 outline-none text-white font-mono" />
             </div>
             <div className="space-y-2">
-              <label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] px-1">Utilization (FH/Mo)</label>
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Utilizzo Medio (FH/Mese)</label>
               <input type="number" name="avg_fh" defaultValue={editingAircraft?.avgMonthlyFH || 40} required className="w-full px-5 py-4 bg-slate-800 rounded-2xl border border-slate-700 outline-none text-white font-mono" />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-6">
-            <div className="space-y-2">
-              <label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] px-1">Total Cycles (C)</label>
-              <input type="number" name="cycles" defaultValue={editingAircraft?.totalCycles || 0} required className="w-full px-5 py-4 bg-slate-800 rounded-2xl border border-slate-700 outline-none text-white font-mono" />
-            </div>
-            <div className="space-y-2">
-              <label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] px-1">Avg Cycles (C/Mo)</label>
-              <input type="number" name="avg_cycles" defaultValue={editingAircraft?.avgMonthlyCycles || 100} required className="w-full px-5 py-4 bg-slate-800 rounded-2xl border border-slate-700 outline-none text-white font-mono" />
-            </div>
-          </div>
-          <button type="submit" className="w-full py-6 bg-blue-600 text-white font-black uppercase tracking-widest rounded-3xl shadow-2xl shadow-blue-600/20 hover:bg-blue-500 transition-all active:scale-95">Commit Aircraft Data</button>
+          <button type="submit" className="w-full py-6 bg-blue-600 text-white font-black uppercase tracking-widest rounded-3xl shadow-2xl shadow-blue-600/20 hover:bg-blue-500 transition-all">Salva Dati Velivolo</button>
         </form>
       </Modal>
 
-      {/* Modal: Component (Add/Edit) */}
-      <Modal isOpen={isAddComponentOpen} onClose={() => { setIsAddComponentOpen(false); setEditingComponent(null); }} title={editingComponent ? "Modify Component Record" : "Register New Component"}>
+      {/* Modal: Component */}
+      <Modal isOpen={isAddComponentOpen} onClose={() => { setIsAddComponentOpen(false); setEditingComponent(null); }} title={editingComponent ? "Modifica Componente" : "Registrazione Componente"}>
         <form onSubmit={saveComponent} className="space-y-8">
           <div className="grid grid-cols-2 gap-6">
              <div className="space-y-2">
-               <label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] px-1">Component Name</label>
-               <input name="name" defaultValue={editingComponent?.name} placeholder="Engine Overhaul" required className="w-full px-5 py-4 bg-slate-800 rounded-2xl border border-slate-700 outline-none focus:ring-2 focus:ring-blue-600 text-white font-bold" />
+               <label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Nome Componente</label>
+               <input name="name" defaultValue={editingComponent?.name} placeholder="Magneti" required className="w-full px-5 py-4 bg-slate-800 rounded-2xl border border-slate-700 outline-none focus:ring-2 focus:ring-blue-600 text-white font-bold" />
              </div>
              <div className="space-y-2">
-               <label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] px-1">Serial Number</label>
+               <label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Serial Number</label>
                <input name="sn" defaultValue={editingComponent?.serialNumber} placeholder="S/N" required className="w-full px-5 py-4 bg-slate-800 rounded-2xl border border-slate-700 outline-none focus:ring-2 focus:ring-blue-600 text-white font-mono" />
              </div>
           </div>
-          <div className="grid grid-cols-2 gap-6">
-            <div className="space-y-2">
-               <label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] px-1">Asset Installation</label>
-               <select name="acId" defaultValue={editingComponent?.aircraftId || 'mag'} className="w-full px-5 py-4 bg-slate-800 rounded-2xl border border-slate-700 outline-none text-white font-bold appearance-none cursor-pointer focus:ring-2 focus:ring-blue-600">
-                 <option value="mag">Magazzino (Spare Part)</option>
-                 {aircraft.map(a => <option key={a.id} value={a.id}>{a.registration} - {a.model}</option>)}
-               </select>
-            </div>
-            <div className="space-y-2">
-               <label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] px-1">Lead Time (Days)</label>
-               <input type="number" name="lead_time" defaultValue={editingComponent?.leadTimeDays || 15} required className="w-full px-5 py-4 bg-slate-800 rounded-2xl border border-slate-700 outline-none focus:ring-2 focus:ring-blue-600 text-white font-mono" />
-             </div>
+          <div className="space-y-2">
+             <label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Installazione Velivolo</label>
+             <select name="acId" defaultValue={editingComponent?.aircraftId || 'mag'} className="w-full px-5 py-4 bg-slate-800 rounded-2xl border border-slate-700 outline-none text-white font-bold appearance-none cursor-pointer focus:ring-2 focus:ring-blue-600">
+               <option value="mag">Magazzino (Spare Part)</option>
+               {aircraft.map(a => <option key={a.id} value={a.id}>{a.registration} ({a.model})</option>)}
+             </select>
           </div>
           <div className="p-10 bg-slate-950/50 rounded-[2.5rem] border border-slate-800 space-y-6">
-            <div className="text-[10px] font-black text-blue-500 uppercase tracking-[0.3em]">Lifecycle Configuration</div>
-            <input name="desc" defaultValue={editingComponent?.requirements[0].description} placeholder="Service Interval Description" required className="w-full px-5 py-4 bg-slate-800 rounded-xl border border-slate-700 text-white font-bold" />
+            <div className="text-[10px] font-black text-blue-500 uppercase tracking-[0.3em]">Ciclo di Vita / Scadenze</div>
+            <input name="desc" defaultValue={editingComponent?.requirements[0].description} placeholder="Descrizione Ispezione" required className="w-full px-5 py-4 bg-slate-800 rounded-xl border border-slate-700 text-white font-bold" />
             <div className="flex gap-4">
               <select name="type" defaultValue={editingComponent?.requirements[0].type || 'FH'} className="flex-1 px-5 py-4 bg-slate-800 rounded-xl border border-slate-700 text-white font-bold">
-                <option value="FH">Flight Hours (FH)</option>
-                <option value="C">Cycles (C)</option>
-                <option value="CAL">Calendar (CAL)</option>
+                <option value="FH">Ore Volo (FH)</option>
+                <option value="CAL">Calendario (CAL)</option>
               </select>
-              <input name="next" defaultValue={editingComponent?.requirements[0].nextDueValue} placeholder="Limit Value" required className="flex-1 px-5 py-4 bg-slate-800 rounded-xl border border-slate-700 text-white font-mono font-bold" />
-            </div>
-            <div className="space-y-1">
-              <label className="text-[9px] font-black text-slate-600 uppercase tracking-widest px-1">Recurrent Interval</label>
-              <input name="interval" type="number" defaultValue={editingComponent?.requirements[0].interval} placeholder="Cycle Interval" className="w-full px-5 py-4 bg-slate-800 rounded-xl border border-slate-700 text-white font-mono" />
+              <input name="next" defaultValue={editingComponent?.requirements[0].nextDueValue} placeholder="Valore Limite" required className="flex-1 px-5 py-4 bg-slate-800 rounded-xl border border-slate-700 text-white font-mono font-bold" />
             </div>
           </div>
-          <button type="submit" className="w-full py-6 bg-blue-600 text-white font-black uppercase tracking-widest rounded-3xl shadow-2xl shadow-blue-600/20 hover:bg-blue-500 transition-all active:scale-95">Commit Asset Record</button>
+          <button type="submit" className="w-full py-6 bg-blue-600 text-white font-black uppercase tracking-widest rounded-3xl shadow-2xl shadow-blue-600/20 hover:bg-blue-500 transition-all">Registra Asset</button>
         </form>
       </Modal>
 
