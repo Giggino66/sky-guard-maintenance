@@ -141,7 +141,7 @@ export default function App() {
       await window.aistudio.openSelectKey();
       setIsApiConfigured(true);
     } else {
-      alert("Configurazione automatica non disponibile in questo ambiente. Assicurati che process.env.API_KEY sia impostato.");
+      alert("Configurazione automatica non disponibile in questo ambiente.");
     }
   };
 
@@ -218,28 +218,25 @@ export default function App() {
   };
 
   const handleAskAi = async () => {
-    const hasKey = window.aistudio?.hasSelectedApiKey ? await window.aistudio.hasSelectedApiKey() : !!process.env.API_KEY;
-    
-    if (!hasKey) {
-      if (confirm("API Key non configurata. Desideri configurarla ora?")) {
-        await handleOpenApiKey();
-        // Proceeding after triggering selection (assuming success as per guidelines)
-      } else {
-        return;
-      }
-    }
-
     setLoadingAi(true);
+    setAiAdvice(""); // Resettiamo il report precedente
+
     try {
       const advice = await getMaintenanceAdvice(predictions, components);
-      if (advice.includes("404") || advice.includes("not found")) {
-        setAiAdvice("Errore: La chiave API selezionata non sembra valida o il progetto non esiste. Riprova la configurazione.");
+      setAiAdvice(advice);
+    } catch (err: any) {
+      console.error("AI Report Error:", err);
+      
+      if (err.message === "API_KEY_MISSING") {
+        if (confirm("Chiave API non trovata. Vuoi configurarla ora?")) {
+          await handleOpenApiKey();
+        }
+      } else if (err.message === "ENTITY_NOT_FOUND") {
+        alert("La chiave API attuale non è valida o il progetto è inesistente. Riconfigurazione richiesta.");
         await handleOpenApiKey();
       } else {
-        setAiAdvice(advice);
+        setAiAdvice("Si è verificato un errore tecnico durante l'analisi. Controlla la tua connessione e riprova.");
       }
-    } catch (err) {
-      setAiAdvice("Errore durante l'analisi AI. Verifica la connessione e la validità della chiave API.");
     } finally {
       setLoadingAi(false);
     }
@@ -292,11 +289,11 @@ export default function App() {
                <div className="flex items-center gap-3 mb-3">
                  <div className={`w-2 h-2 rounded-full ${isApiConfigured ? 'bg-emerald-500' : 'bg-red-500'} animate-pulse`} />
                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                   {isApiConfigured ? 'AI Service Connected' : 'AI Offline (No Key)'}
+                   {isApiConfigured ? 'AI Intelligence Online' : 'AI Service Disconnected'}
                  </span>
                </div>
                <div className="text-[10px] text-slate-500 font-mono leading-tight">
-                 VER: 1.1.6-API-FIX<br/>
+                 VER: 1.1.7-REL<br/>
                  LOC: LIRF (Roma)
                </div>
             </div>
@@ -319,7 +316,7 @@ export default function App() {
                       disabled={loadingAi}
                       className="bg-blue-600 hover:bg-blue-500 text-white px-8 py-4 rounded-[1.5rem] font-black flex items-center gap-3 transition-all hover:scale-105 active:scale-95 disabled:opacity-50 shadow-xl shadow-blue-600/20"
                     >
-                      <Sparkles size={20} /> {loadingAi ? "ANALISI SISTEMI..." : "REPORT AI ANALYTICS"}
+                      <Sparkles size={20} className={loadingAi ? 'animate-spin' : ''} /> {loadingAi ? "GENERAZIONE REPORT..." : "AI ANALYTICS REPORT"}
                     </button>
                   </header>
 
@@ -328,10 +325,16 @@ export default function App() {
                     <div className="glass-panel p-10 rounded-[2.5rem] border-blue-500/20 hud-glow animate-in fade-in slide-in-from-top-6 duration-700 relative overflow-hidden group">
                       <div className="absolute top-0 left-0 w-1 h-full bg-blue-500/50" />
                       <div className="font-black flex items-center gap-3 mb-5 uppercase tracking-widest text-xs text-blue-400">
-                        <Gauge size={16}/> Protocollo Suggerimenti AI
+                        <Gauge size={16}/> Analisi Predittiva Gemini Pro
                       </div>
-                      <div className="whitespace-pre-wrap font-medium text-slate-300 leading-relaxed text-sm italic prose prose-invert max-w-none">{aiAdvice}</div>
-                      <button onClick={() => setAiAdvice("")} className="mt-6 text-blue-400/60 font-black text-[10px] uppercase hover:text-white transition-colors">Dismiss Report</button>
+                      <div className="prose prose-invert max-w-none prose-sm font-medium text-slate-300 leading-relaxed">
+                        {aiAdvice.split('\n').map((line, idx) => (
+                          <p key={idx} className="mb-2">{line}</p>
+                        ))}
+                      </div>
+                      <button onClick={() => setAiAdvice("")} className="mt-8 text-blue-400/60 font-black text-[10px] uppercase hover:text-white transition-colors flex items-center gap-2">
+                        <X size={14} /> Chiudi Report Analitico
+                      </button>
                     </div>
                   )}
 

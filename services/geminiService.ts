@@ -3,63 +3,76 @@ import { GoogleGenAI } from "@google/genai";
 import { PredictionResult, Component } from "../types";
 
 export const getMaintenanceAdvice = async (predictions: PredictionResult[], components: Component[]) => {
-  // Initialize AI with the environment API KEY
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  // Otteniamo la chiave esclusivamente da process.env.API_KEY
+  const apiKey = process.env.API_KEY;
+
+  if (!apiKey || apiKey === "undefined") {
+    throw new Error("API_KEY_MISSING");
+  }
+
+  // Inizializzazione istantanea per riflettere eventuali cambi di chiave
+  const ai = new GoogleGenAI({ apiKey });
   
-  // Use gemini-3-flash-preview for fast and reliable reasoning on tabular data
+  // Utilizzo di Gemini 3 Flash per velocità e capacità di ragionamento
   const model = 'gemini-3-flash-preview';
   
-  // Prepare a refined context of critical maintenance tasks
   const criticalTasks = predictions
     .filter(p => p.daysRemaining < 60)
-    .slice(0, 20)
+    .slice(0, 15)
     .map(p => ({
-      Component: p.componentName,
-      // Fixed: Quoted key "A/C" to avoid being interpreted as an arithmetic division operation (A / C)
-      "A/C": p.aircraftRegistration,
-      Requirement: p.requirementDescription,
-      RemainingDays: p.daysRemaining,
-      DueDate: p.estimatedDueDate.toLocaleDateString(),
-      Severity: p.actionRequired
+      Componente: p.componentName,
+      Aereo: p.aircraftRegistration,
+      Requisito: p.requirementDescription,
+      GiorniRimanenti: p.daysRemaining,
+      DataScadenza: p.estimatedDueDate.toLocaleDateString(),
+      Urgenza: p.actionRequired
     }));
 
-  const systemInstruction = `Sei un esperto Ingegnere di Manutenzione Aeronautica (CAMO Manager). 
-Analizza i dati della flotta e fornisci un report strategico conciso e tecnico. 
-Focalizzati sulla sicurezza del volo e sull'ottimizzazione del fermo macchina. 
-Rispondi sempre in italiano professionale. Usa il grassetto per evidenziare i punti critici.`;
+  const systemInstruction = `Sei l'Ingegnere Capo di un Aeroclub (CAMO Manager).
+Analizza i dati tecnici e genera un report di manutenzione professionale.
+Usa un tono tecnico, preciso e focalizzato sulla sicurezza del volo (Safety First).
+Formatta la risposta in Markdown con titoli chiari e liste puntate.
+Rispondi esclusivamente in italiano.`;
 
   const prompt = `
-Analizza questa situazione della flotta:
+Analisi Flotta SkyGuard - Dati Correnti:
 
-SCADENZE CRITICHE:
+SCADENZE CRITICHE PROSSIMI 60 GIORNI:
 ${JSON.stringify(criticalTasks, null, 2)}
 
-DETTAGLI COMPONENTI (Inventory):
-${JSON.stringify(components.map(c => ({ name: c.name, leadTime: c.leadTimeDays, criticality: c.criticality })), null, 2)}
+INVENTARIO COMPONENTI E LEAD TIMES:
+${JSON.stringify(components.map(c => ({ nome: c.name, leadTime: c.leadTimeDays, criticita: c.criticality })), null, 2)}
 
-Genera un report suddiviso in:
-1. **STATO DI ALLERTA IMMEDIATA**: Azioni da compiere entro 7 giorni.
-2. **PIANIFICAZIONE LOGISTICA**: Parti da ordinare subito (considerando i lead times).
-3. **STRATEGIA HANGAR**: Suggerimenti per raggruppare i lavori.
-4. **VALUTAZIONE RISCHIO**: Impatto sulla disponibilità operativa dell'aeroclub.
+Genera un report strutturato come segue:
+1. **PRIORITÀ IMMEDIATE**: Elenca i componenti che richiedono azione entro 7 giorni.
+2. **STRATEGIA DI APPROVVIGIONAMENTO**: Suggerisci cosa ordinare ora basandoti sui Lead Times.
+3. **EFFICIENZA HANGAR**: Suggerisci come raggruppare i lavori per ridurre il fermo macchina.
+4. **VALUTAZIONE RISCHIO**: Nota finale sulla disponibilità della flotta.
   `;
 
   try {
-    // Corrected: Using a simplified contents parameter and providing systemInstruction within config
     const response = await ai.models.generateContent({
-      model: model,
-      contents: prompt,
+      model,
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
       config: {
-        systemInstruction: systemInstruction,
+        systemInstruction,
         temperature: 0.7,
       }
     });
 
-    // response.text is a property, not a method
-    return response.text || "Impossibile generare il report al momento. Verifica la configurazione dell'API.";
+    if (!response.text) {
+      throw new Error("EMPTY_RESPONSE");
+    }
+
+    return response.text;
   } catch (error: any) {
-    console.error("Gemini API Error:", error);
-    if (error.message?.includes("429")) return "Limite di quota raggiunto. Riprova tra un minuto.";
-    return "Errore di comunicazione con il centro analisi AI. Verifica la connessione.";
+    console.error("Gemini API Error Detail:", error);
+    
+    // Rilanciamo l'errore specifico per essere gestito dalla UI
+    if (error.message?.includes("Requested entity was not found")) {
+      throw new Error("ENTITY_NOT_FOUND");
+    }
+    
+    throw error;
   }
 };
