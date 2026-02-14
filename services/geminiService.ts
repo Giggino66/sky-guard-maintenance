@@ -3,17 +3,17 @@ import { GoogleGenAI } from "@google/genai";
 import { PredictionResult, Component } from "../types";
 
 export const getMaintenanceAdvice = async (predictions: PredictionResult[], components: Component[]) => {
-  // Otteniamo la chiave esclusivamente da process.env.API_KEY
+  // Always obtain the API key from process.env.API_KEY injected at runtime
   const apiKey = process.env.API_KEY;
 
   if (!apiKey || apiKey === "undefined") {
     throw new Error("API_KEY_MISSING");
   }
 
-  // Inizializzazione istantanea per riflettere eventuali cambi di chiave
+  // Create a fresh instance to ensure we use the current key from the selection dialog
   const ai = new GoogleGenAI({ apiKey });
   
-  // Utilizzo di Gemini 3 Flash per velocità e capacità di ragionamento
+  // Use Gemini 3 Flash for efficient reasoning and fast performance
   const model = 'gemini-3-flash-preview';
   
   const criticalTasks = predictions
@@ -53,7 +53,7 @@ Genera un report strutturato come segue:
   try {
     const response = await ai.models.generateContent({
       model,
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      contents: prompt,
       config: {
         systemInstruction,
         temperature: 0.7,
@@ -68,8 +68,8 @@ Genera un report strutturato come segue:
   } catch (error: any) {
     console.error("Gemini API Error Detail:", error);
     
-    // Rilanciamo l'errore specifico per essere gestito dalla UI
-    if (error.message?.includes("Requested entity was not found")) {
+    // Specifically handle the "entity not found" error to trigger re-selection of the key
+    if (error.message?.includes("Requested entity was not found") || error.message?.includes("404")) {
       throw new Error("ENTITY_NOT_FOUND");
     }
     

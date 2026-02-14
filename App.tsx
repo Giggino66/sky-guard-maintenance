@@ -43,6 +43,20 @@ import { calculatePrediction } from './utils/maintenance';
 import { getMaintenanceAdvice } from './services/geminiService';
 import { storageService } from './services/storageService';
 
+// --- Global Type Definitions for Gemini API Studio Integration ---
+
+declare global {
+  /* Fix: Define the AIStudio interface as expected by the environment and use readonly modifier for window.aistudio */
+  interface AIStudio {
+    hasSelectedApiKey: () => Promise<boolean>;
+    openSelectKey: () => Promise<void>;
+  }
+
+  interface Window {
+    readonly aistudio: AIStudio;
+  }
+}
+
 // --- Improved Status Badges with Aviation Styling ---
 
 const StatusBadge = ({ status }: { status: AircraftStatus }) => {
@@ -218,8 +232,20 @@ export default function App() {
   };
 
   const handleAskAi = async () => {
+    // Check key status
+    const hasKey = window.aistudio?.hasSelectedApiKey ? await window.aistudio.hasSelectedApiKey() : !!process.env.API_KEY;
+    
+    if (!hasKey) {
+      if (confirm("Chiave API Gemini non configurata. È necessaria per generare il report. Configurala ora?")) {
+        await handleOpenApiKey();
+        // Assume key selection was successful and proceed as per guidelines
+      } else {
+        return;
+      }
+    }
+
     setLoadingAi(true);
-    setAiAdvice(""); // Resettiamo il report precedente
+    setAiAdvice(""); 
 
     try {
       const advice = await getMaintenanceAdvice(predictions, components);
@@ -228,14 +254,12 @@ export default function App() {
       console.error("AI Report Error:", err);
       
       if (err.message === "API_KEY_MISSING") {
-        if (confirm("Chiave API non trovata. Vuoi configurarla ora?")) {
-          await handleOpenApiKey();
-        }
+        await handleOpenApiKey();
       } else if (err.message === "ENTITY_NOT_FOUND") {
-        alert("La chiave API attuale non è valida o il progetto è inesistente. Riconfigurazione richiesta.");
+        alert("La chiave API selezionata non è valida o il progetto è inesistente. Riconfigurazione richiesta.");
         await handleOpenApiKey();
       } else {
-        setAiAdvice("Si è verificato un errore tecnico durante l'analisi. Controlla la tua connessione e riprova.");
+        setAiAdvice("Si è verificato un errore tecnico. Assicurati che il tuo progetto Google Cloud abbia la fatturazione attiva.");
       }
     } finally {
       setLoadingAi(false);
@@ -293,7 +317,7 @@ export default function App() {
                  </span>
                </div>
                <div className="text-[10px] text-slate-500 font-mono leading-tight">
-                 VER: 1.1.7-REL<br/>
+                 VER: 1.1.8-FINAL<br/>
                  LOC: LIRF (Roma)
                </div>
             </div>
@@ -325,7 +349,7 @@ export default function App() {
                     <div className="glass-panel p-10 rounded-[2.5rem] border-blue-500/20 hud-glow animate-in fade-in slide-in-from-top-6 duration-700 relative overflow-hidden group">
                       <div className="absolute top-0 left-0 w-1 h-full bg-blue-500/50" />
                       <div className="font-black flex items-center gap-3 mb-5 uppercase tracking-widest text-xs text-blue-400">
-                        <Gauge size={16}/> Analisi Predittiva Gemini Pro
+                        <Gauge size={16}/> Analisi Predittiva Gemini
                       </div>
                       <div className="prose prose-invert max-w-none prose-sm font-medium text-slate-300 leading-relaxed">
                         {aiAdvice.split('\n').map((line, idx) => (
